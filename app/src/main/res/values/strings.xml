@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Judo Seddouk</string>
+    <string name="club_title">JUDO SEDDOUK</string>
+    <string name="tagline">Gestion &amp; Pointage Présence</string>
+    <string name="scan_qr">Scanner un QR Code</string>
+    <string name="camera_permission_needed">L\'accès à la caméra est nécessaire pour scanner les QR codes des judokas.</string>
+    <string name="grant_camera_permission">Autoriser la caméra</string>
+    <string name="check_in_success">Présence enregistrée</string>
+    <string name="already_checked_in">Déjà pointé aujourd\'hui</string>
+    <string name="qr_not_recognized">QR code inconnu</string>
+</resources>

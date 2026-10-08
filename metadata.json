@@ -1,0 +1,6 @@
+{
+  "name": "Judo Seddouk",
+  "description": "Application professionnelle de pointage et présence pour le club Judo Seddouk avec scan QR rapide, gestion des judokas et statistiques.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -8,9 +8,9 @@ data class ExtractedMemberInfo(
     val cardNumber: String = "",
     val firstName: String = "",
     val lastName: String = "",
-    val birthDate: String = "2013-01-06",
+    val birthDate: String = "",
     val phone: String = "",
-    val season: String = "2026/2027",
+    val season: String = "",
     val group: JudoGroup = JudoGroup.MINIMES,
     val belt: Belt = Belt.BLANCHE,
     val qrCode: String = "",
@@ -42,19 +42,25 @@ object CardDataParser {
     fun parseCardData(raw: String): ExtractedMemberInfo {
         val trimmed = raw.trim()
 
-        // 1. Try Judo Club Seddouk / Sports Card Key-Value format first!
-        tryParseJudoClubCard(trimmed)?.let { return it }
-
-        // 2. Try JSON
+        // 1. Try JSON
         tryParseJson(trimmed)?.let { return it }
 
-        // 3. Try vCard
+        // 2. Try vCard
         tryParseVCard(trimmed)?.let { return it }
 
-        // 4. Try Generic Key-Value
+        // 3. Try Judo Club Seddouk / Sports Card Key-Value format
+        tryParseJudoClubCard(trimmed)?.let { return it }
+
+        // 4. Try dedicated SportCardScanner OCR parser
+        val ocrResult = SportCardScanner.parseCardOcrText(trimmed)
+        if (ocrResult.lastName.isNotBlank() && (trimmed.contains("seddouk", ignoreCase = true) || trimmed.contains("nom", ignoreCase = true) || trimmed.contains("adherent", ignoreCase = true))) {
+            return ocrResult
+        }
+
+        // 5. Try Generic Key-Value
         tryParseGenericKeyValue(trimmed)?.let { return it }
 
-        // 5. Try Pipe or Semicolon Delimited
+        // 6. Try Pipe or Semicolon Delimited
         tryParseDelimited(trimmed)?.let { return it }
 
         // 6. Fallback: Card ID / License Code
@@ -178,13 +184,13 @@ object CardDataParser {
         }
 
         // Normalize birth date to YYYY-MM-DD
-        val normalizedBirthDate = normalizeDate(birthDate).ifBlank { "2013-01-06" }
+        val normalizedBirthDate = normalizeDate(birthDate)
 
         // Parse first and last names smartly
         val (firstName, lastName) = parseFirstAndLastName(adherentRaw)
 
         // Compute Judo category based on birth date
-        val group = if (groupStr.isNotBlank()) JudoGroup.fromString(groupStr) else JudoGroup.fromBirthDate(normalizedBirthDate)
+        val group = if (groupStr.isNotBlank()) JudoGroup.fromString(groupStr) else if (normalizedBirthDate.isNotBlank()) JudoGroup.fromBirthDate(normalizedBirthDate) else JudoGroup.MINIMES
         val belt = if (beltStr.isNotBlank()) Belt.fromString(beltStr) else Belt.BLANCHE
 
         // Construct a clean, unique QR identifier from card number
@@ -206,7 +212,7 @@ object CardDataParser {
             lastName = lastName,
             birthDate = normalizedBirthDate,
             phone = phone.replace(" ", "").trim(),
-            season = season.ifBlank { "2026/2027" },
+            season = season,
             group = group,
             belt = belt,
             qrCode = qrCode,
@@ -255,16 +261,16 @@ object CardDataParser {
     private fun normalizeDate(rawDate: String): String {
         val clean = rawDate.trim()
         if (clean.isBlank()) return ""
-        // Check YYYY-MM-DD
-        val ymd = Regex("""(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})""").find(clean)
+        // Check YYYY-MM-DD (allow optional spaces around separator)
+        val ymd = Regex("""(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})""").find(clean)
         if (ymd != null) {
             val y = ymd.groupValues[1]
             val m = ymd.groupValues[2].padStart(2, '0')
             val d = ymd.groupValues[3].padStart(2, '0')
             return "$y-$m-$d"
         }
-        // Check DD/MM/YYYY
-        val dmy = Regex("""(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})""").find(clean)
+        // Check DD/MM/YYYY (allow optional spaces around separator)
+        val dmy = Regex("""(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})""").find(clean)
         if (dmy != null) {
             val d = dmy.groupValues[1].padStart(2, '0')
             val m = dmy.groupValues[2].padStart(2, '0')
@@ -288,25 +294,28 @@ object CardDataParser {
 
             val lastName = extractField("nom", "lastName", "last_name")
             val firstName = extractField("prenom", "prénom", "firstName", "first_name")
-            val birthDate = extractField("naissance", "birthDate", "birth").ifBlank { "2013-01-06" }
+            val rawBirth = extractField("naissance", "birthDate", "birth")
+            val birthDate = normalizeDate(rawBirth)
             val phone = extractField("tel", "phone", "telephone", "tuteur")
-            val groupStr = extractField("groupe", "group").ifBlank { "U15" }
+            val groupStr = extractField("groupe", "group")
             val beltStr = extractField("ceinture", "belt").ifBlank { "BLANCHE" }
             val cardNum = extractField("n", "numero", "id", "code")
             val qrCode = extractField("qr", "id", "code").ifBlank { "JCS-${System.currentTimeMillis().toString().takeLast(5)}" }
-            val season = extractField("saison", "season").ifBlank { "2026/2027" }
+            val season = extractField("saison", "season")
             val photoUrl = extractField("photo", "photoUrl", "avatar")
             val notes = extractField("notes").ifBlank { "Importé par scan de carte (JSON)" }
+
+            val group = if (groupStr.isNotBlank()) JudoGroup.fromString(groupStr) else if (birthDate.isNotBlank()) JudoGroup.fromBirthDate(birthDate) else JudoGroup.MINIMES
 
             if (lastName.isNotBlank() || firstName.isNotBlank() || qrCode.isNotBlank()) {
                 ExtractedMemberInfo(
                     cardNumber = cardNum,
                     firstName = capitalizeWord(firstName.trim()),
                     lastName = lastName.trim(),
-                    birthDate = normalizeDate(birthDate).ifBlank { "2013-01-06" },
+                    birthDate = birthDate,
                     phone = phone.trim(),
                     season = season,
-                    group = JudoGroup.fromString(groupStr),
+                    group = group,
                     belt = Belt.fromString(beltStr),
                     qrCode = qrCode.trim(),
                     photoUrl = photoUrl.trim(),
@@ -369,25 +378,27 @@ object CardDataParser {
         ) {
             val lastName = map["nom"] ?: map["lastname"] ?: ""
             val firstName = map["prénom"] ?: map["prenom"] ?: map["firstname"] ?: ""
-            val birthDate = map["naissance"] ?: map["date"] ?: map["né"] ?: map["ne"] ?: "2013-01-06"
+            val rawBirth = map["naissance"] ?: map["date"] ?: map["né"] ?: map["ne"] ?: ""
+            val birthDate = normalizeDate(rawBirth)
             val phone = map["tél"] ?: map["tel"] ?: map["telephone"] ?: map["phone"] ?: map["tuteur"] ?: ""
-            val groupStr = map["groupe"] ?: map["catégorie"] ?: map["categorie"] ?: "U15"
+            val groupStr = map["groupe"] ?: map["catégorie"] ?: map["categorie"] ?: ""
             val beltStr = map["ceinture"] ?: map["grade"] ?: "BLANCHE"
             val cardNum = map["n"] ?: map["n°"] ?: map["carte"] ?: map["id"] ?: ""
             val photoUrl = map["photo"] ?: map["avatar"] ?: ""
-            val season = map["saison"] ?: "2026/2027"
+            val season = map["saison"] ?: ""
 
             val finalFirstName = if (firstName.isNotBlank()) capitalizeWord(firstName) else ""
             val finalLastName = if (lastName.isNotBlank()) lastName.trim() else ""
+            val group = if (groupStr.isNotBlank()) JudoGroup.fromString(groupStr) else if (birthDate.isNotBlank()) JudoGroup.fromBirthDate(birthDate) else JudoGroup.MINIMES
 
             return ExtractedMemberInfo(
                 cardNumber = cardNum,
                 firstName = finalFirstName,
                 lastName = finalLastName,
-                birthDate = normalizeDate(birthDate).ifBlank { "2013-01-06" },
+                birthDate = birthDate,
                 phone = phone,
                 season = season,
-                group = JudoGroup.fromString(groupStr),
+                group = group,
                 belt = Belt.fromString(beltStr),
                 qrCode = if (cardNum.isNotBlank()) "JCS-$cardNum" else "JCS-${System.currentTimeMillis().toString().takeLast(5)}",
                 photoUrl = photoUrl,
@@ -416,17 +427,19 @@ object CardDataParser {
 
             val lastName = parts.getOrNull(offset) ?: ""
             val firstName = parts.getOrNull(offset + 1) ?: ""
-            val birthDate = parts.getOrNull(offset + 2) ?: "2013-01-06"
-            val groupStr = parts.getOrNull(offset + 3) ?: "U15"
+            val rawBirth = parts.getOrNull(offset + 2) ?: ""
+            val birthDate = normalizeDate(rawBirth)
+            val groupStr = parts.getOrNull(offset + 3) ?: ""
             val beltStr = parts.getOrNull(offset + 4) ?: "BLANCHE"
             val phone = parts.getOrNull(offset + 5) ?: ""
+            val group = if (groupStr.isNotBlank()) JudoGroup.fromString(groupStr) else if (birthDate.isNotBlank()) JudoGroup.fromBirthDate(birthDate) else JudoGroup.MINIMES
 
             return ExtractedMemberInfo(
                 firstName = capitalizeWord(firstName),
                 lastName = lastName.trim(),
-                birthDate = normalizeDate(birthDate).ifBlank { "2013-01-06" },
+                birthDate = birthDate,
                 phone = phone,
-                group = JudoGroup.fromString(groupStr),
+                group = group,
                 belt = Belt.fromString(beltStr),
                 qrCode = id.ifBlank { "JCS-${System.currentTimeMillis().toString().takeLast(5)}" },
                 notes = "Extrait automatiquement par carte délimitée",

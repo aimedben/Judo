@@ -46,4 +46,41 @@ object CsvExporter {
         }
         context.startActivity(Intent.createChooser(shareIntent, "Partager le rapport de présence"))
     }
+
+    fun generateMembersCsv(members: List<Member>): String {
+        val sb = StringBuilder()
+        sb.append("ID,Nom,Prénom,Catégorie,Ceinture,Statut,Cotisation,Date_Naissance,Téléphone,Date_Inscription\n")
+        members.forEach { m ->
+            sb.append("\"${m.id}\",")
+            sb.append("\"${m.lastName}\",")
+            sb.append("\"${m.firstName}\",")
+            sb.append("\"${m.groupCode}\",")
+            sb.append("\"${m.beltName}\",")
+            sb.append("\"${m.status}\",")
+            sb.append("\"${if (m.isCotisationUpToDate) "A_JOUR" else "EN_RETARD"}\",")
+            sb.append("\"${m.birthDate}\",")
+            sb.append("\"${m.phone}\",")
+            sb.append("\"${m.registrationDate}\"\n")
+        }
+        return sb.toString()
+    }
+
+    fun shareMembersReport(
+        context: Context,
+        members: List<Member>,
+        filterLabel: String
+    ) {
+        val csvData = generateMembersCsv(members)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Membres Judo Seddouk - $filterLabel")
+            putExtra(
+                Intent.EXTRA_TEXT,
+                "🥋 Registre des judokas - Judo Seddouk ($filterLabel)\n" +
+                "Total judokas: ${members.size}\n\n" +
+                csvData
+            )
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "Partager le registre des membres"))
+    }
 }

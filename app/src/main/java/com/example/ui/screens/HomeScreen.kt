@@ -87,6 +87,7 @@ fun HomeScreen(
     isDarkTheme: Boolean = true,
     onToggleTheme: () -> Unit = {},
     onEditCoachProfile: () -> Unit = {},
+    onSwitchRole: () -> Unit = {},
     onNavigateToScanner: () -> Unit,
     onNavigateToMemberDetail: (Long) -> Unit,
     onQuickCheckIn: (String) -> Unit,
@@ -195,6 +196,28 @@ fun HomeScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                // Switch to Coach Categories Space
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = JudoRed.copy(alpha = 0.15f),
+                                    border = CardDefaults.outlinedCardBorder(),
+                                    modifier = Modifier.clickable { onSwitchRole() }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "🥋 Catégories",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = JudoRed
+                                            )
+                                        )
+                                    }
+                                }
+
                                 // Theme Toggle
                                 IconButton(
                                     onClick = onToggleTheme,

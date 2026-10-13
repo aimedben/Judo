@@ -87,4 +87,73 @@ class JudoLogicTest {
         assertEquals("Dahmani", parsed.lastName)
         assertEquals("0771 22 33 44", parsed.phone)
     }
+
+    @Test
+    fun testSportCardScannerBourenaneAnis() {
+        val ocrSample = """
+            JUDO CLUB SEDDOUK
+            SAISON 2026/2027
+            N° 1
+            NOM BOURENANE
+            PRÉNOM ANIS
+            DATE DE NAISSANCE 2013-01-04
+            TÉL. TUTEUR 0782487924
+            Club Sportif Amateur
+            J. C. S.
+            SECTION JUDO
+            JUDO CLUB SEDDOUK
+            Scannez pour vérifier
+            judoclubseddouk@gmail.com
+            0794-33-50-10 - CSP Seddouk, Béjaïa
+        """.trimIndent()
+
+        val parsed = com.example.util.SportCardScanner.parseCardOcrText(ocrSample)
+        assertEquals("Anis", parsed.firstName)
+        assertEquals("BOURENANE", parsed.lastName)
+        assertEquals("2013-01-04", parsed.birthDate)
+        assertEquals("0782487924", parsed.phone)
+        assertEquals("1", parsed.cardNumber)
+        assertEquals("2026/2027", parsed.season)
+        assertEquals("JUDO CLUB SEDDOUK", parsed.clubName)
+        assertEquals("JCS-1", parsed.qrCode)
+    }
+
+    @Test
+    fun testSportCardScannerFrenchDateAndPhoneFormatting() {
+        val ocrSample = """
+            JUDO CLUB SEDDOUK
+            N° : 42
+            NOM : HADDAD
+            PRÉNOM : MOHAMED
+            NÉ(E) LE : 15 / 06 / 2014
+            TÉL. TUTEUR : 05 55 12 34 56
+            SECTION JUDO
+            0794-33-50-10 - CSP Seddouk
+        """.trimIndent()
+
+        val parsed = com.example.util.SportCardScanner.parseCardOcrText(ocrSample)
+        assertEquals("Mohamed", parsed.firstName)
+        assertEquals("HADDAD", parsed.lastName)
+        assertEquals("2014-06-15", parsed.birthDate)
+        assertEquals("0555123456", parsed.phone)
+        assertEquals("42", parsed.cardNumber)
+        assertEquals("JCS-42", parsed.qrCode)
+    }
+
+    @Test
+    fun testSportCardScannerNoFakeDefaultsWhenMissing() {
+        val minimalSample = """
+            JUDO CLUB SEDDOUK
+            NOM MANSOURI
+            PRÉNOM SARAH
+        """.trimIndent()
+
+        val parsed = com.example.util.SportCardScanner.parseCardOcrText(minimalSample)
+        assertEquals("Sarah", parsed.firstName)
+        assertEquals("MANSOURI", parsed.lastName)
+        // Birth date must be empty, not hardcoded dummy value!
+        assertEquals("", parsed.birthDate)
+        assertEquals("", parsed.phone)
+    }
 }
+

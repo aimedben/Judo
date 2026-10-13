@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.History
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.SportsMartialArts
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,8 +48,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.model.ActiveTrainingSession
+import com.example.data.model.AdminNotification
+import com.example.data.model.AdminProfile
+import com.example.data.model.AdminSubScreen
+import com.example.data.model.ClubSettings
 import com.example.data.model.CoachProfile
+import com.example.data.model.CoachTab
+import com.example.data.model.CoachUser
+import com.example.data.model.JudoCategory
 import com.example.data.model.Member
+import com.example.data.model.PastTrainingSession
+import com.example.data.model.UserRole
 import com.example.data.repository.CheckInResult
 import com.example.ui.MainViewModel
 import com.example.ui.ThemePreference
@@ -56,25 +68,46 @@ import com.example.ui.components.AlreadyCheckedInDialog
 import com.example.ui.components.AssociateCardDialog
 import com.example.ui.components.CheckInConfirmationDialog
 import com.example.ui.components.CoachProfileDialog
+import com.example.ui.screens.AdminAttendanceOverviewScreen
+import com.example.ui.screens.AdminCategoriesScreen
+import com.example.ui.screens.AdminCoachesScreen
+import com.example.ui.screens.AdminDashboardScreen
+import com.example.ui.screens.AdminExportsScreen
+import com.example.ui.screens.AdminProfileEditDialog
+import com.example.ui.screens.AdminSessionsScreen
+import com.example.ui.screens.AdminSettingsScreen
+import com.example.ui.screens.CategorySelectionScreen
+import com.example.ui.screens.CoachAthletesScreen
+import com.example.ui.screens.CoachHistoryScreen
+import com.example.ui.screens.CoachMinimalHomeScreen
+import com.example.ui.screens.CoachProfileScreen
+import com.example.ui.screens.CoachSessionPointageScreen
+import com.example.ui.screens.CoachSessionPreparationScreen
+import com.example.ui.screens.CoachSessionSummaryScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MemberDetailScreen
 import com.example.ui.screens.MembersScreen
+import com.example.ui.screens.NotificationsDialog
 import com.example.ui.screens.ScannerScreen
 import com.example.ui.screens.ScannerTargetMode
 import com.example.ui.screens.StatFilterMode
 import com.example.ui.screens.StatFilteredMembersScreen
 import com.example.ui.screens.StatPeriod
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.SportsMartialArts
 import com.example.ui.theme.JudoRed
 import com.example.ui.theme.MyApplicationTheme
 
 enum class ScreenTab(val label: String, val icon: ImageVector) {
-    HOME("Accueil", Icons.Default.Home),
-    SCANNER("Scanner", Icons.Default.QrCodeScanner),
-    MEMBERS("Membres", Icons.Default.People),
-    DASHBOARD("Stats", Icons.Default.BarChart),
-    HISTORY("Historique", Icons.Default.History)
+    HOME("Accueil", Icons.Default.Dashboard),
+    MEMBERS("Athlètes", Icons.Default.People),
+    COACHES("Coachs", Icons.Default.SportsMartialArts),
+    CATEGORIES("Catégories", Icons.Default.Category),
+    SESSIONS("Séances", Icons.Default.EventNote)
 }
 
 class MainActivity : ComponentActivity() {
@@ -110,6 +143,28 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
     var scannerMode by remember { mutableStateOf(ScannerTargetMode.POINTAGE) }
     var isCoachProfileDialogOpen by remember { mutableStateOf(false) }
 
+    // Admin State & SubScreens
+    var activeAdminSubScreen by remember { mutableStateOf(AdminSubScreen.NONE) }
+    var isNotificationsDialogOpen by remember { mutableStateOf(false) }
+    var isAdminProfileDialogOpen by remember { mutableStateOf(false) }
+
+    val categories by viewModel.categories.collectAsState()
+    val coaches by viewModel.coaches.collectAsState()
+    val clubSettings by viewModel.clubSettings.collectAsState()
+    val adminProfile by viewModel.adminProfile.collectAsState()
+    val notifications by viewModel.notifications.collectAsState()
+    val themePreference by viewModel.themePreference.collectAsState()
+    val userRole by viewModel.userRole.collectAsState()
+    val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val activeSession by viewModel.activeSession.collectAsState()
+    val coachScanFeedback by viewModel.coachScanFeedback.collectAsState()
+    val pastSessions by viewModel.pastSessions.collectAsState()
+
+    var isPreparingSession by remember { mutableStateOf(false) }
+    var isSessionSummaryShown by remember { mutableStateOf(false) }
+    var currentCoachTab by remember { mutableStateOf(CoachTab.SESSION) }
+    var isCoachCameraScannerOpen by remember { mutableStateOf(false) }
+
     val coachProfile by viewModel.coachProfile.collectAsState()
     val allMembers by viewModel.allMembers.collectAsState()
     val todayAttendance by viewModel.todayAttendance.collectAsState()
@@ -124,8 +179,46 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
         viewModel.getTopAttendanceList(allMembers, allAttendance, dashboardPeriod)
     }
 
-    // Back handling priority: Member Detail -> Stat Filter list -> Home screen
-    if (selectedMemberId != null) {
+    // Filter members for active coach session category
+    val categoryMembers = remember(allMembers, selectedCategory) {
+        if (selectedCategory == null) allMembers
+        else allMembers.filter { it.groupCode.equals(selectedCategory!!.groupCode, ignoreCase = true) }
+    }
+
+    val sessionAttendances = remember(todayAttendance, selectedCategory) {
+        if (selectedCategory == null) todayAttendance
+        else todayAttendance.filter { it.groupCode.equals(selectedCategory!!.groupCode, ignoreCase = true) }
+    }
+
+    // Back handling priority
+    if (userRole == UserRole.COACH && selectedCategory != null) {
+        if (isSessionSummaryShown) {
+            BackHandler {
+                isSessionSummaryShown = false
+                viewModel.endSession()
+            }
+        } else if (isCoachCameraScannerOpen) {
+            BackHandler {
+                isCoachCameraScannerOpen = false
+            }
+        } else if (isPreparingSession) {
+            BackHandler {
+                isPreparingSession = false
+            }
+        } else if (currentCoachTab != CoachTab.SESSION) {
+            BackHandler {
+                currentCoachTab = CoachTab.SESSION
+            }
+        } else if (activeSession == null) {
+            BackHandler {
+                viewModel.selectCategory(null)
+            }
+        }
+    } else if (activeAdminSubScreen != AdminSubScreen.NONE) {
+        BackHandler {
+            activeAdminSubScreen = AdminSubScreen.NONE
+        }
+    } else if (selectedMemberId != null) {
         BackHandler {
             selectedMemberId = null
         }
@@ -137,6 +230,255 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
         BackHandler {
             currentTab = ScreenTab.HOME
         }
+    }
+
+    // 1. Welcome Screen: Category Selection (when in COACH mode and no category selected yet)
+    if (userRole == UserRole.COACH && selectedCategory == null) {
+        CategorySelectionScreen(
+            categories = categories,
+            onSelectCategory = { category ->
+                viewModel.selectCategory(category)
+                currentCoachTab = CoachTab.SESSION
+            },
+            onAdminAccess = {
+                viewModel.setUserRole(UserRole.ADMIN)
+            },
+            isDarkTheme = isDarkTheme,
+            onToggleTheme = { viewModel.toggleTheme() }
+        )
+        return
+    }
+
+    // 2. Coach Flow with selected category & dedicated Coach Navbar
+    if (userRole == UserRole.COACH && selectedCategory != null) {
+        @Composable
+        fun CoachScreenBody() {
+            when (currentCoachTab) {
+                CoachTab.SESSION -> {
+                    if (isSessionSummaryShown && activeSession != null) {
+                        // Screen 4: Fin de séance - Récapitulatif
+                        CoachSessionSummaryScreen(
+                            session = activeSession!!,
+                            categoryMembers = categoryMembers,
+                            sessionAttendances = sessionAttendances,
+                            onValidateAndSave = { endTime ->
+                                viewModel.saveFinishedSession(
+                                    session = activeSession!!,
+                                    endTime = endTime,
+                                    categoryMembers = categoryMembers,
+                                    presentAttendances = sessionAttendances
+                                )
+                                isSessionSummaryShown = false
+                            }
+                        )
+                    } else if (activeSession != null) {
+                        // Screen 3: Pointage pendant entraînement
+                        if (isCoachCameraScannerOpen) {
+                            ScannerScreen(
+                                members = categoryMembers,
+                                initialMode = ScannerTargetMode.POINTAGE,
+                                onQrScanned = { code -> viewModel.onQrScanned(code) },
+                                onCardExtractedForCreation = { raw -> viewModel.extractCardDataForMemberCreation(raw) },
+                                onBack = { isCoachCameraScannerOpen = false }
+                            )
+                        } else {
+                            CoachSessionPointageScreen(
+                                session = activeSession!!,
+                                categoryMembers = categoryMembers,
+                                sessionAttendances = sessionAttendances,
+                                scanFeedback = coachScanFeedback,
+                                onOpenScanner = { isCoachCameraScannerOpen = true },
+                                onQrScanned = { code -> viewModel.onQrScanned(code) },
+                                onManualCheckInMember = { member -> viewModel.manualCheckIn(member.id) },
+                                onFinishSession = { isSessionSummaryShown = true },
+                                onDismissFeedback = { viewModel.clearCoachScanFeedback() }
+                            )
+                        }
+                    } else if (isPreparingSession) {
+                        // Screen 2: Préparation de séance
+                        CoachSessionPreparationScreen(
+                            category = selectedCategory!!,
+                            onBack = { isPreparingSession = false },
+                            onStartTraining = { session ->
+                                viewModel.startSession(session)
+                                isPreparingSession = false
+                            }
+                        )
+                    } else {
+                        // Screen 1: Minimalist Coach Home with prominent "Nouvelle séance" button
+                        CoachMinimalHomeScreen(
+                            category = selectedCategory!!,
+                            onChangeCategory = { viewModel.selectCategory(null) },
+                            onStartNewSession = { isPreparingSession = true }
+                        )
+                    }
+                }
+                CoachTab.ATHLETES -> {
+                    CoachAthletesScreen(
+                        category = selectedCategory!!,
+                        members = categoryMembers,
+                        todayAttendances = sessionAttendances,
+                        onManualCheckIn = { member -> viewModel.manualCheckIn(member.id) }
+                    )
+                }
+                CoachTab.HISTORY -> {
+                    CoachHistoryScreen(
+                        category = selectedCategory!!,
+                        pastSessions = pastSessions
+                    )
+                }
+                CoachTab.PROFILE -> {
+                    CoachProfileScreen(
+                        category = selectedCategory!!,
+                        isDarkTheme = isDarkTheme,
+                        onToggleTheme = { viewModel.toggleTheme() },
+                        onChangeCategory = { viewModel.selectCategory(null) },
+                        onSwitchToAdmin = { viewModel.setUserRole(UserRole.ADMIN) }
+                    )
+                }
+            }
+        }
+
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val isTablet = maxWidth >= 600.dp
+            if (isTablet) {
+                // Tablet layout: Coach NavigationRail on left
+                Row(modifier = Modifier.fillMaxSize()) {
+                    NavigationRail(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .testTag("coach_tablet_navigation_rail"),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        header = {
+                            Text(
+                                text = "🥋 COACH",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Black,
+                                    color = JudoRed
+                                ),
+                                modifier = Modifier.padding(vertical = 16.dp)
+                            )
+                        }
+                    ) {
+                        CoachTab.entries.forEach { tab ->
+                            NavigationRailItem(
+                                selected = currentCoachTab == tab,
+                                onClick = {
+                                    isCoachCameraScannerOpen = false
+                                    currentCoachTab = tab
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = when (tab) {
+                                            CoachTab.SESSION -> Icons.Default.SportsMartialArts
+                                            CoachTab.ATHLETES -> Icons.Default.People
+                                            CoachTab.HISTORY -> Icons.Default.History
+                                            CoachTab.PROFILE -> Icons.Default.AccountCircle
+                                        },
+                                        contentDescription = tab.label
+                                    )
+                                },
+                                label = { Text(tab.label) },
+                                colors = NavigationRailItemDefaults.colors(
+                                    selectedIconColor = Color.White,
+                                    selectedTextColor = JudoRed,
+                                    indicatorColor = JudoRed
+                                ),
+                                modifier = Modifier.testTag("coach_rail_${tab.name.lowercase()}")
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    ) {
+                        CoachScreenBody()
+                    }
+                }
+            } else {
+                // Phone layout: Coach Bottom Navigation Bar (4 tabs only: Séance, Athlètes, Historique, Profil)
+                Scaffold(
+                    bottomBar = {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 8.dp,
+                            modifier = Modifier.testTag("coach_bottom_navigation_bar")
+                        ) {
+                            CoachTab.entries.forEach { tab ->
+                                NavigationBarItem(
+                                    selected = currentCoachTab == tab,
+                                    onClick = {
+                                        isCoachCameraScannerOpen = false
+                                        currentCoachTab = tab
+                                    },
+                                    icon = {
+                                        Icon(
+                                            imageVector = when (tab) {
+                                                CoachTab.SESSION -> Icons.Default.SportsMartialArts
+                                                CoachTab.ATHLETES -> Icons.Default.People
+                                                CoachTab.HISTORY -> Icons.Default.History
+                                                CoachTab.PROFILE -> Icons.Default.AccountCircle
+                                            },
+                                            contentDescription = tab.label,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            text = tab.label,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = if (currentCoachTab == tab) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color.White,
+                                        selectedTextColor = JudoRed,
+                                        indicatorColor = JudoRed,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    modifier = Modifier.testTag("coach_nav_${tab.name.lowercase()}")
+                                )
+                            }
+                        }
+                    }
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        CoachScreenBody()
+                    }
+                }
+            }
+        }
+
+        // Global CheckIn Confirmation Dialogs
+        when (val result = activeCheckInResult) {
+            is CheckInResult.Success -> {
+                CheckInConfirmationDialog(
+                    member = result.member,
+                    timeString = result.attendance.timeString,
+                    onDismiss = { viewModel.dismissCheckInDialog() },
+                    onViewProfile = { _ ->
+                        viewModel.dismissCheckInDialog()
+                    }
+                )
+            }
+            is CheckInResult.AlreadyCheckedIn -> {
+                AlreadyCheckedInDialog(
+                    member = result.member,
+                    existingTime = result.existingAttendance.timeString,
+                    onDismiss = { viewModel.dismissCheckInDialog() }
+                )
+            }
+            else -> Unit
+        }
+        return
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -163,14 +505,12 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                 ) {
                     ScreenTab.entries.forEach { tab ->
                         NavigationRailItem(
-                            selected = currentTab == tab && selectedMemberId == null && activeStatFilter == null,
+                            selected = currentTab == tab && selectedMemberId == null && activeStatFilter == null && activeAdminSubScreen == AdminSubScreen.NONE,
                             onClick = {
                                 selectedMemberId = null
                                 activeStatFilter = null
+                                activeAdminSubScreen = AdminSubScreen.NONE
                                 currentTab = tab
-                                if (tab == ScreenTab.SCANNER) {
-                                    scannerMode = ScannerTargetMode.POINTAGE
-                                }
                             },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
                             label = { Text(tab.label) },
@@ -209,9 +549,14 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                         activeStatFilter = activeStatFilter,
                         activeStatPeriod = activeStatPeriod,
                         dashboardPeriod = dashboardPeriod,
-                        onDashboardPeriodChange = { dashboardPeriod = it },
-                        onActiveStatPeriodChange = { activeStatPeriod = it },
-                        onFilterModeChange = { activeStatFilter = it },
+                        activeAdminSubScreen = activeAdminSubScreen,
+                        coaches = coaches,
+                        categories = categories,
+                        clubSettings = clubSettings,
+                        adminProfile = adminProfile,
+                        pastSessions = pastSessions,
+                        notifications = notifications,
+                        themePreference = themePreference,
                         allMembers = allMembers,
                         todayAttendance = todayAttendance,
                         recentAttendance = recentAttendance,
@@ -219,17 +564,19 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                         lastScanned = lastScanned,
                         topStats = topStats,
                         isDarkTheme = isDarkTheme,
-                        scannerMode = scannerMode,
                         coachProfile = coachProfile,
+                        activeSession = activeSession,
+                        onAdminSubScreenChange = { activeAdminSubScreen = it },
+                        onDashboardPeriodChange = { dashboardPeriod = it },
+                        onActiveStatPeriodChange = { activeStatPeriod = it },
+                        onFilterModeChange = { activeStatFilter = it },
                         onEditCoachProfile = { isCoachProfileDialogOpen = true },
                         onToggleTheme = { viewModel.toggleTheme() },
                         onNavigateToTab = { tab ->
+                            activeAdminSubScreen = AdminSubScreen.NONE
                             activeStatFilter = null
                             selectedMemberId = null
                             currentTab = tab
-                            if (tab == ScreenTab.SCANNER) {
-                                scannerMode = ScannerTargetMode.POINTAGE
-                            }
                         },
                         onSelectMember = { selectedMemberId = it },
                         onBackFromMemberDetail = { selectedMemberId = null },
@@ -243,17 +590,29 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                         onDeleteMember = { viewModel.deleteMember(it) },
                         onSaveMember = { viewModel.saveMember(it) },
                         onDeleteAttendance = { viewModel.deleteAttendance(it) },
-                        onQrScanned = { viewModel.onQrScanned(it) },
-                        onCardExtractedForCreation = { viewModel.extractCardDataForMemberCreation(it) },
-                        onScanCardToExtract = {
-                            activeStatFilter = null
-                            selectedMemberId = null
-                            scannerMode = ScannerTargetMode.EXTRACTION_MEMBRE
-                            currentTab = ScreenTab.SCANNER
-                        },
                         onManualCheckIn = { viewModel.manualCheckIn(it) },
                         onRecordAttendanceForDate = { id, date -> viewModel.recordAttendanceForDate(id, date) },
-                        onDeleteAttendanceForDate = { id, date -> viewModel.deleteAttendanceForDate(id, date) }
+                        onDeleteAttendanceForDate = { id, date -> viewModel.deleteAttendanceForDate(id, date) },
+                        onSwitchRole = {
+                            viewModel.selectCategory(null)
+                            viewModel.setUserRole(UserRole.COACH)
+                        },
+                        onOpenNotifications = { isNotificationsDialogOpen = true },
+                        onOpenProfileDialog = { isAdminProfileDialogOpen = true },
+                        onAddCoach = { viewModel.addCoach(it) },
+                        onUpdateCoach = { viewModel.updateCoach(it) },
+                        onToggleCoachActive = { viewModel.toggleCoachActive(it) },
+                        onAddCategory = { viewModel.addCategory(it) },
+                        onUpdateCategory = { viewModel.updateCategory(it) },
+                        onToggleCategoryActive = { viewModel.toggleCategoryActive(it) },
+                        onCorrectAttendance = { sId, mName, pres -> viewModel.correctSessionAttendance(sId, mName, pres) },
+                        onSetThemePreference = { viewModel.setThemePreference(it) },
+                        onUpdateClubSettings = { viewModel.updateClubSettings(it) },
+                        onUpdateAdminProfile = { viewModel.updateAdminProfile(it) },
+                        onLogout = {
+                            viewModel.selectCategory(null)
+                            viewModel.setUserRole(UserRole.COACH)
+                        }
                     )
                 }
             }
@@ -267,14 +626,12 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                     ) {
                         ScreenTab.entries.forEach { tab ->
                             NavigationBarItem(
-                                selected = currentTab == tab && selectedMemberId == null && activeStatFilter == null,
+                                selected = currentTab == tab && selectedMemberId == null && activeStatFilter == null && activeAdminSubScreen == AdminSubScreen.NONE,
                                 onClick = {
                                     selectedMemberId = null
                                     activeStatFilter = null
+                                    activeAdminSubScreen = AdminSubScreen.NONE
                                     currentTab = tab
-                                    if (tab == ScreenTab.SCANNER) {
-                                        scannerMode = ScannerTargetMode.POINTAGE
-                                    }
                                 },
                                 icon = {
                                     Icon(
@@ -287,7 +644,7 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                                     Text(
                                         text = tab.label,
                                         style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = if (currentTab == tab && activeStatFilter == null) FontWeight.Bold else FontWeight.Normal
+                                            fontWeight = if (currentTab == tab && activeStatFilter == null && activeAdminSubScreen == AdminSubScreen.NONE) FontWeight.Bold else FontWeight.Normal
                                         )
                                     )
                                 },
@@ -315,9 +672,14 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                         activeStatFilter = activeStatFilter,
                         activeStatPeriod = activeStatPeriod,
                         dashboardPeriod = dashboardPeriod,
-                        onDashboardPeriodChange = { dashboardPeriod = it },
-                        onActiveStatPeriodChange = { activeStatPeriod = it },
-                        onFilterModeChange = { activeStatFilter = it },
+                        activeAdminSubScreen = activeAdminSubScreen,
+                        coaches = coaches,
+                        categories = categories,
+                        clubSettings = clubSettings,
+                        adminProfile = adminProfile,
+                        pastSessions = pastSessions,
+                        notifications = notifications,
+                        themePreference = themePreference,
                         allMembers = allMembers,
                         todayAttendance = todayAttendance,
                         recentAttendance = recentAttendance,
@@ -325,17 +687,19 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                         lastScanned = lastScanned,
                         topStats = topStats,
                         isDarkTheme = isDarkTheme,
-                        scannerMode = scannerMode,
                         coachProfile = coachProfile,
+                        activeSession = activeSession,
+                        onAdminSubScreenChange = { activeAdminSubScreen = it },
+                        onDashboardPeriodChange = { dashboardPeriod = it },
+                        onActiveStatPeriodChange = { activeStatPeriod = it },
+                        onFilterModeChange = { activeStatFilter = it },
                         onEditCoachProfile = { isCoachProfileDialogOpen = true },
                         onToggleTheme = { viewModel.toggleTheme() },
                         onNavigateToTab = { tab ->
+                            activeAdminSubScreen = AdminSubScreen.NONE
                             activeStatFilter = null
                             selectedMemberId = null
                             currentTab = tab
-                            if (tab == ScreenTab.SCANNER) {
-                                scannerMode = ScannerTargetMode.POINTAGE
-                            }
                         },
                         onSelectMember = { selectedMemberId = it },
                         onBackFromMemberDetail = { selectedMemberId = null },
@@ -349,21 +713,51 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                         onDeleteMember = { viewModel.deleteMember(it) },
                         onSaveMember = { viewModel.saveMember(it) },
                         onDeleteAttendance = { viewModel.deleteAttendance(it) },
-                        onQrScanned = { viewModel.onQrScanned(it) },
-                        onCardExtractedForCreation = { viewModel.extractCardDataForMemberCreation(it) },
-                        onScanCardToExtract = {
-                            activeStatFilter = null
-                            selectedMemberId = null
-                            scannerMode = ScannerTargetMode.EXTRACTION_MEMBRE
-                            currentTab = ScreenTab.SCANNER
-                        },
                         onManualCheckIn = { viewModel.manualCheckIn(it) },
                         onRecordAttendanceForDate = { id, date -> viewModel.recordAttendanceForDate(id, date) },
-                        onDeleteAttendanceForDate = { id, date -> viewModel.deleteAttendanceForDate(id, date) }
+                        onDeleteAttendanceForDate = { id, date -> viewModel.deleteAttendanceForDate(id, date) },
+                        onSwitchRole = {
+                            viewModel.selectCategory(null)
+                            viewModel.setUserRole(UserRole.COACH)
+                        },
+                        onOpenNotifications = { isNotificationsDialogOpen = true },
+                        onOpenProfileDialog = { isAdminProfileDialogOpen = true },
+                        onAddCoach = { viewModel.addCoach(it) },
+                        onUpdateCoach = { viewModel.updateCoach(it) },
+                        onToggleCoachActive = { viewModel.toggleCoachActive(it) },
+                        onAddCategory = { viewModel.addCategory(it) },
+                        onUpdateCategory = { viewModel.updateCategory(it) },
+                        onToggleCategoryActive = { viewModel.toggleCategoryActive(it) },
+                        onCorrectAttendance = { sId, mName, pres -> viewModel.correctSessionAttendance(sId, mName, pres) },
+                        onSetThemePreference = { viewModel.setThemePreference(it) },
+                        onUpdateClubSettings = { viewModel.updateClubSettings(it) },
+                        onUpdateAdminProfile = { viewModel.updateAdminProfile(it) },
+                        onLogout = {
+                            viewModel.selectCategory(null)
+                            viewModel.setUserRole(UserRole.COACH)
+                        }
                     )
                 }
             }
         }
+    }
+
+    // Admin Dialogs
+    if (isNotificationsDialogOpen) {
+        NotificationsDialog(
+            notifications = notifications,
+            onMarkAsRead = { viewModel.markNotificationRead(it) },
+            onMarkAllAsRead = { viewModel.markAllNotificationsRead() },
+            onDismiss = { isNotificationsDialogOpen = false }
+        )
+    }
+
+    if (isAdminProfileDialogOpen) {
+        AdminProfileEditDialog(
+            profile = adminProfile,
+            onSave = { viewModel.updateAdminProfile(it) },
+            onDismiss = { isAdminProfileDialogOpen = false }
+        )
     }
 
     // Modal dialogs triggered by scan or actions
@@ -412,7 +806,7 @@ fun JudoApp(viewModel: MainViewModel, isDarkTheme: Boolean) {
                 activeStatFilter = null
                 selectedMemberId = null
                 scannerMode = ScannerTargetMode.EXTRACTION_MEMBRE
-                currentTab = ScreenTab.SCANNER
+                currentTab = ScreenTab.HOME
             },
             onSave = { newMember ->
                 viewModel.saveMember(newMember)
@@ -456,9 +850,14 @@ private fun AppScreenContent(
     activeStatFilter: StatFilterMode?,
     activeStatPeriod: StatPeriod,
     dashboardPeriod: StatPeriod,
-    onDashboardPeriodChange: (StatPeriod) -> Unit,
-    onActiveStatPeriodChange: (StatPeriod) -> Unit,
-    onFilterModeChange: (StatFilterMode) -> Unit,
+    activeAdminSubScreen: AdminSubScreen,
+    coaches: List<CoachUser>,
+    categories: List<JudoCategory>,
+    clubSettings: ClubSettings,
+    adminProfile: AdminProfile,
+    pastSessions: List<PastTrainingSession>,
+    notifications: List<AdminNotification>,
+    themePreference: ThemePreference,
     allMembers: List<Member>,
     todayAttendance: List<com.example.data.model.AttendanceWithMember>,
     recentAttendance: List<com.example.data.model.AttendanceWithMember>,
@@ -466,8 +865,12 @@ private fun AppScreenContent(
     lastScanned: com.example.data.model.AttendanceWithMember?,
     topStats: List<com.example.data.repository.MemberAttendanceStat>,
     isDarkTheme: Boolean,
-    scannerMode: ScannerTargetMode,
     coachProfile: CoachProfile,
+    activeSession: ActiveTrainingSession?,
+    onAdminSubScreenChange: (AdminSubScreen) -> Unit,
+    onDashboardPeriodChange: (StatPeriod) -> Unit,
+    onActiveStatPeriodChange: (StatPeriod) -> Unit,
+    onFilterModeChange: (StatFilterMode) -> Unit,
     onEditCoachProfile: () -> Unit,
     onToggleTheme: () -> Unit,
     onNavigateToTab: (ScreenTab) -> Unit,
@@ -479,12 +882,23 @@ private fun AppScreenContent(
     onDeleteMember: (Member) -> Unit,
     onSaveMember: (Member) -> Unit,
     onDeleteAttendance: (Long) -> Unit,
-    onQrScanned: (String) -> Unit,
-    onCardExtractedForCreation: (String) -> Unit,
-    onScanCardToExtract: () -> Unit,
     onManualCheckIn: (Long) -> Unit,
     onRecordAttendanceForDate: (Long, String) -> Unit = { _, _ -> },
-    onDeleteAttendanceForDate: (Long, String) -> Unit = { _, _ -> }
+    onDeleteAttendanceForDate: (Long, String) -> Unit = { _, _ -> },
+    onSwitchRole: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
+    onOpenProfileDialog: () -> Unit = {},
+    onAddCoach: (CoachUser) -> Unit = {},
+    onUpdateCoach: (CoachUser) -> Unit = {},
+    onToggleCoachActive: (String) -> Unit = {},
+    onAddCategory: (JudoCategory) -> Unit = {},
+    onUpdateCategory: (JudoCategory) -> Unit = {},
+    onToggleCategoryActive: (String) -> Unit = {},
+    onCorrectAttendance: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    onSetThemePreference: (ThemePreference) -> Unit = {},
+    onUpdateClubSettings: (ClubSettings) -> Unit = {},
+    onUpdateAdminProfile: (AdminProfile) -> Unit = {},
+    onLogout: () -> Unit = {}
 ) {
     // 1. Member Profile Detail Screen
     if (selectedMemberId != null) {
@@ -534,45 +948,9 @@ private fun AppScreenContent(
         return
     }
 
-    // 3. Tab Screens
-    when (currentTab) {
-        ScreenTab.HOME -> {
-            HomeScreen(
-                allMembers = allMembers,
-                todayAttendance = todayAttendance,
-                lastScanned = lastScanned,
-                coachProfile = coachProfile,
-                isDarkTheme = isDarkTheme,
-                onToggleTheme = onToggleTheme,
-                onEditCoachProfile = onEditCoachProfile,
-                onNavigateToScanner = { onNavigateToTab(ScreenTab.SCANNER) },
-                onNavigateToMemberDetail = onSelectMember,
-                onQuickCheckIn = onQrScanned,
-                onStatClick = { filterMode -> onStatClick(filterMode, StatPeriod.TODAY) }
-            )
-        }
-        ScreenTab.SCANNER -> {
-            ScannerScreen(
-                members = allMembers,
-                initialMode = scannerMode,
-                onQrScanned = onQrScanned,
-                onCardExtractedForCreation = onCardExtractedForCreation,
-                onBack = { onNavigateToTab(ScreenTab.HOME) }
-            )
-        }
-        ScreenTab.MEMBERS -> {
-            MembersScreen(
-                members = allMembers,
-                todayAttendance = todayAttendance,
-                coachProfile = coachProfile,
-                onEditCoachProfile = onEditCoachProfile,
-                onSelectMember = onSelectMember,
-                onSaveMember = onSaveMember,
-                onNavigateToScanner = { onNavigateToTab(ScreenTab.SCANNER) },
-                onScanCardToExtract = onScanCardToExtract
-            )
-        }
-        ScreenTab.DASHBOARD -> {
+    // 3. Sub-Screens accessible from Quick Access or Header
+    when (activeAdminSubScreen) {
+        AdminSubScreen.STATS_DETAIL -> {
             DashboardScreen(
                 members = allMembers,
                 todayAttendance = todayAttendance,
@@ -582,12 +960,113 @@ private fun AppScreenContent(
                 onSelectMember = onSelectMember,
                 onStatClick = onStatClick
             )
+            return
         }
-        ScreenTab.HISTORY -> {
-            HistoryScreen(
-                attendanceList = allAttendance,
-                onDeleteAttendance = onDeleteAttendance,
-                onNavigateToMemberDetail = onSelectMember
+        AdminSubScreen.ATTENDANCE_OVERVIEW -> {
+            AdminAttendanceOverviewScreen(
+                allMembers = allMembers,
+                todayAttendance = todayAttendance,
+                allAttendance = allAttendance,
+                categories = categories,
+                pastSessions = pastSessions,
+                onSelectMember = onSelectMember,
+                onBack = { onAdminSubScreenChange(AdminSubScreen.NONE) }
+            )
+            return
+        }
+        AdminSubScreen.EXPORTS -> {
+            AdminExportsScreen(
+                allMembers = allMembers,
+                allAttendance = allAttendance,
+                todayAttendance = todayAttendance,
+                categories = categories,
+                onBack = { onAdminSubScreenChange(AdminSubScreen.NONE) }
+            )
+            return
+        }
+        AdminSubScreen.SETTINGS -> {
+            AdminSettingsScreen(
+                clubSettings = clubSettings,
+                adminProfile = adminProfile,
+                currentThemePreference = themePreference,
+                onSetThemePreference = onSetThemePreference,
+                onUpdateClubSettings = onUpdateClubSettings,
+                onUpdateAdminProfile = onUpdateAdminProfile,
+                onLogout = onLogout,
+                onBack = { onAdminSubScreenChange(AdminSubScreen.NONE) }
+            )
+            return
+        }
+        AdminSubScreen.NONE -> Unit
+    }
+
+    // 4. Primary Admin Tab Screens (Without QR scan or scanner tools)
+    when (currentTab) {
+        ScreenTab.HOME -> {
+            AdminDashboardScreen(
+                clubSettings = clubSettings,
+                adminProfile = adminProfile,
+                allMembers = allMembers,
+                todayAttendance = todayAttendance,
+                allAttendance = allAttendance,
+                categories = categories,
+                coaches = coaches,
+                pastSessions = pastSessions,
+                notifications = notifications,
+                isDarkTheme = isDarkTheme,
+                onNavigateToAthletes = { onNavigateToTab(ScreenTab.MEMBERS) },
+                onNavigateToCoaches = { onNavigateToTab(ScreenTab.COACHES) },
+                onNavigateToCategories = { onNavigateToTab(ScreenTab.CATEGORIES) },
+                onNavigateToAssignments = { onNavigateToTab(ScreenTab.COACHES) },
+                onNavigateToSessions = { onNavigateToTab(ScreenTab.SESSIONS) },
+                onNavigateToAttendanceOverview = { onAdminSubScreenChange(AdminSubScreen.ATTENDANCE_OVERVIEW) },
+                onNavigateToHistory = { onNavigateToTab(ScreenTab.SESSIONS) },
+                onNavigateToStats = { onAdminSubScreenChange(AdminSubScreen.STATS_DETAIL) },
+                onNavigateToExports = { onAdminSubScreenChange(AdminSubScreen.EXPORTS) },
+                onNavigateToSettings = { onAdminSubScreenChange(AdminSubScreen.SETTINGS) },
+                onOpenNotifications = onOpenNotifications,
+                onOpenProfileDialog = onOpenProfileDialog,
+                onSwitchToCoach = onSwitchRole,
+                onLogout = onLogout,
+                onSelectMember = onSelectMember
+            )
+        }
+        ScreenTab.MEMBERS -> {
+            MembersScreen(
+                members = allMembers,
+                todayAttendance = todayAttendance,
+                coachProfile = coachProfile,
+                onEditCoachProfile = onEditCoachProfile,
+                onSelectMember = onSelectMember,
+                onSaveMember = onSaveMember
+            )
+        }
+        ScreenTab.COACHES -> {
+            AdminCoachesScreen(
+                coaches = coaches,
+                categories = categories,
+                onAddCoach = onAddCoach,
+                onUpdateCoach = onUpdateCoach,
+                onToggleCoachActive = onToggleCoachActive
+            )
+        }
+        ScreenTab.CATEGORIES -> {
+            AdminCategoriesScreen(
+                categories = categories,
+                allMembers = allMembers,
+                coaches = coaches,
+                onAddCategory = onAddCategory,
+                onUpdateCategory = onUpdateCategory,
+                onToggleCategoryActive = onToggleCategoryActive,
+                onViewCategoryMembers = { onNavigateToTab(ScreenTab.MEMBERS) }
+            )
+        }
+        ScreenTab.SESSIONS -> {
+            AdminSessionsScreen(
+                pastSessions = pastSessions,
+                activeSession = activeSession,
+                categories = categories,
+                onCorrectAttendance = onCorrectAttendance
             )
         }
     }

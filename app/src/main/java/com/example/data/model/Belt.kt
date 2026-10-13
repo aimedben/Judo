@@ -80,3 +80,7 @@ enum class JudoGroup(
         }
     }
 }
+
+val Belt.frenchName: String get() = displayName
+val JudoGroup.frenchName: String get() = label
+val JudoGroup.frenchLabel: String get() = label

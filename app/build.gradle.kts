@@ -85,6 +85,8 @@ dependencies {
   implementation(libs.androidx.camera.view)
   implementation(libs.zxing.core)
   implementation(libs.mlkit.barcode)
+  implementation(libs.mlkit.text.recognition)
+  implementation(libs.mlkit.face.detection)
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)

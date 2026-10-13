@@ -103,7 +103,7 @@ fun AddEditMemberDialog(
         mutableStateOf(initialMember?.lastName ?: initialExtractedInfo?.lastName ?: "")
     }
     var birthDate by remember {
-        mutableStateOf(initialMember?.birthDate ?: initialExtractedInfo?.birthDate ?: "2013-01-06")
+        mutableStateOf(initialMember?.birthDate ?: initialExtractedInfo?.birthDate?.ifBlank { null } ?: "")
     }
     var phone by remember {
         mutableStateOf(initialMember?.phone ?: initialExtractedInfo?.phone ?: "")
@@ -118,7 +118,7 @@ fun AddEditMemberDialog(
         )
     }
     var season by remember {
-        mutableStateOf(initialExtractedInfo?.season ?: "2026/2027")
+        mutableStateOf(initialExtractedInfo?.season?.ifBlank { null } ?: "2026/2027")
     }
     var photoUrl by remember {
         mutableStateOf(initialMember?.photoUrl ?: initialExtractedInfo?.photoUrl ?: "")
@@ -130,7 +130,7 @@ fun AddEditMemberDialog(
     var selectedGroup by remember {
         mutableStateOf(
             initialMember?.group ?: initialExtractedInfo?.group
-                ?: JudoGroup.fromBirthDate(birthDate)
+                ?: if (birthDate.isNotBlank()) JudoGroup.fromBirthDate(birthDate) else JudoGroup.MINIMES
         )
     }
     var isGroupExpanded by remember { mutableStateOf(false) }
@@ -146,6 +146,7 @@ fun AddEditMemberDialog(
     var lastExtractedCardNumber by remember {
         mutableStateOf(initialExtractedInfo?.cardNumber ?: "")
     }
+    var isRealCardScanDialogOpen by remember { mutableStateOf(false) }
 
     var errorMsg by remember { mutableStateOf("") }
 
@@ -161,25 +162,33 @@ fun AddEditMemberDialog(
     fun applyExtracted(info: ExtractedMemberInfo) {
         if (info.firstName.isNotBlank()) firstName = info.firstName
         if (info.lastName.isNotBlank()) lastName = info.lastName
-        if (info.birthDate.isNotBlank()) birthDate = info.birthDate
+        if (info.birthDate.isNotBlank()) {
+            birthDate = info.birthDate
+            selectedGroup = JudoGroup.fromBirthDate(info.birthDate)
+        } else if (info.group != null) {
+            selectedGroup = info.group
+        }
         if (info.phone.isNotBlank()) phone = info.phone
         if (info.qrCode.isNotBlank()) qrCode = info.qrCode
         if (info.season.isNotBlank()) season = info.season
         if (info.notes.isNotBlank()) notes = info.notes
         if (info.photoUrl.isNotBlank()) photoUrl = info.photoUrl
-        lastExtractedCardNumber = info.cardNumber
-        selectedGroup = info.group
-        selectedBelt = info.belt
+        if (info.cardNumber.isNotBlank()) lastExtractedCardNumber = info.cardNumber
+        if (info.belt != Belt.BLANCHE || info.rawScannedData.contains("blanche", ignoreCase = true)) {
+            selectedBelt = info.belt
+        }
         isFromCardScan = true
     }
 
     // Dynamic age calculation
     val calculatedAge = remember(birthDate) {
         try {
-            val year = birthDate.take(4).toInt()
-            (2026 - year).coerceAtLeast(0)
+            if (birthDate.length >= 4) {
+                val year = birthDate.take(4).toInt()
+                (2026 - year).coerceAtLeast(0)
+            } else null
         } catch (_: Exception) {
-            13
+            null
         }
     }
 
@@ -331,52 +340,41 @@ fun AddEditMemberDialog(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                Button(
+                                    onClick = { isRealCardScanDialogOpen = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = JudoRed),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .testTag("scan_real_seddouk_card_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DocumentScanner,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Scanner la carte (Caméra / Galerie)",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                }
+
                                 if (onRequestScanCard != null) {
                                     OutlinedButton(
                                         onClick = onRequestScanCard,
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f).testTag("dialog_scan_card_button")
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.height(48.dp).testTag("dialog_scan_card_button")
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.QrCodeScanner,
                                             contentDescription = null,
                                             modifier = Modifier.size(16.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Scanner Carte", style = MaterialTheme.typography.labelSmall)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("QR seul", style = MaterialTheme.typography.labelSmall)
                                     }
-                                }
-
-                                // Simulator button with the exact format provided by the user
-                                OutlinedButton(
-                                    onClick = {
-                                        val seddoukCardSample = """
-                                            JUDO CLUB SEDDOUK
-                                            "
-                                            N: 1
-
-                                            Adherent: babi BOURENANE
-
-                                            Ne(e) le: 2013-01-06
-
-                                            Tel tuteur: 0782487120
-
-                                            Saison: 2026/2027
-                                            "
-                                        """.trimIndent()
-                                        applyExtracted(CardDataParser.parseCardData(seddoukCardSample))
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f).testTag("simulate_seddouk_card_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = null,
-                                        tint = JudoGold,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Test Carte Seddouk", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -581,7 +579,7 @@ fun AddEditMemberDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "🎂 Âge calculé: $calculatedAge ans",
+                            text = if (calculatedAge != null) "🎂 Âge calculé: $calculatedAge ans" else "🎂 Format: AAAA-MM-JJ",
                             style = MaterialTheme.typography.labelSmall.copy(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Bold
@@ -895,7 +893,11 @@ fun AddEditMemberDialog(
                                 errorMsg = "Veuillez renseigner le prénom et le nom de l'adhérent."
                                 return@Button
                             }
-                            val cleanBirthDate = birthDate.trim().ifBlank { "2013-01-06" }
+                            if (birthDate.isBlank()) {
+                                errorMsg = "Veuillez renseigner la date de naissance (AAAA-MM-JJ)."
+                                return@Button
+                            }
+                            val cleanBirthDate = birthDate.trim()
                             val cleanPhone = phone.trim()
                             val cleanQr = qrCode.trim().ifBlank { "JCS-${System.currentTimeMillis().toString().takeLast(4)}" }
 
@@ -948,5 +950,15 @@ fun AddEditMemberDialog(
                 }
             }
         }
+    }
+
+    if (isRealCardScanDialogOpen) {
+        SportCardScanDialog(
+            onExtracted = { info ->
+                applyExtracted(info)
+                isRealCardScanDialogOpen = false
+            },
+            onDismiss = { isRealCardScanDialogOpen = false }
+        )
     }
 }

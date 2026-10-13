@@ -31,4 +31,7 @@ data class Member(
 
     val group: JudoGroup
         get() = JudoGroup.fromString(groupCode)
+
+    val isCotisationUpToDate: Boolean
+        get() = status != "SUSPENDU" && !notes.contains("retard", ignoreCase = true)
 }

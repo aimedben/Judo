@@ -38,7 +38,9 @@ enum class StatPeriod(
         shortLabel = "Saison",
         description = "Année sportive complète",
         daysCount = 365
-    )
+    );
+
+    val frenchLabel: String get() = title
 }
 
 enum class StatFilterMode(

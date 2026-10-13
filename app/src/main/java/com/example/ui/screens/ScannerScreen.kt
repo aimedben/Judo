@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.camera.core.CameraControl
+import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -128,7 +129,10 @@ fun ScannerScreen(
     }
 
     var isTorchOn by remember { mutableStateOf(false) }
+    var boostLighting by remember { mutableStateOf(true) }
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
+    var cameraInfo by remember { mutableStateOf<CameraInfo?>(null) }
+    var maxExposureIndex by remember { mutableStateOf(0) }
     var useFrontCamera by remember { mutableStateOf(false) }
     var manualInputText by remember { mutableStateOf("") }
     var showManualInput by remember { mutableStateOf(false) }
@@ -142,6 +146,20 @@ fun ScannerScreen(
                 cameraExecutor.shutdown()
             } catch (_: Exception) {}
         }
+    }
+
+    LaunchedEffect(boostLighting, cameraControl) {
+        cameraControl?.let { ctrl ->
+            val expState = cameraInfo?.exposureState
+            if (expState?.isExposureCompensationSupported == true) {
+                val target = if (boostLighting) expState.exposureCompensationRange.upper else 0
+                ctrl.setExposureCompensationIndex(target)
+            }
+        }
+    }
+
+    LaunchedEffect(isTorchOn, cameraControl) {
+        cameraControl?.enableTorch(isTorchOn)
     }
 
     fun handleScannedCode(raw: String) {
@@ -162,11 +180,13 @@ fun ScannerScreen(
             // Camera Preview View with TextureView COMPATIBLE mode (avoids SurfaceView abandoned buffer queues in Compose)
             AndroidView(
                 factory = { ctx ->
-                    val previewView = PreviewView(ctx).apply {
+                    PreviewView(ctx).apply {
                         implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                        scaleType = PreviewView.ScaleType.FILL_CENTER
                     }
-                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-
+                },
+                update = { previewView ->
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
                     cameraProviderFuture.addListener({
                         val cameraProvider = cameraProviderFuture.get()
                         cameraProviderInstance = cameraProvider
@@ -222,12 +242,20 @@ fun ScannerScreen(
                                 imageAnalysis
                             )
                             cameraControl = camera.cameraControl
+                            cameraInfo = camera.cameraInfo
+                            val expState = camera.cameraInfo.exposureState
+                            if (expState.isExposureCompensationSupported) {
+                                maxExposureIndex = expState.exposureCompensationRange.upper
+                                val targetIndex = if (boostLighting) maxExposureIndex else 0
+                                camera.cameraControl.setExposureCompensationIndex(targetIndex)
+                            }
+                            if (isTorchOn) {
+                                camera.cameraControl.enableTorch(true)
+                            }
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
-                    }, ContextCompat.getMainExecutor(ctx))
-
-                    previewView
+                    }, ContextCompat.getMainExecutor(context))
                 },
                 onRelease = {
                     try {
@@ -302,12 +330,12 @@ fun ScannerScreen(
             val top = (size.height - boxSize) / 2.3f
             val rect = Rect(left, top, left + boxSize, top + boxSize)
 
-            // Dim surroundings
+            // Dim surroundings (lighter alpha 0.28f so camera preview remains bright and clear in dim dojos)
             val path = Path().apply {
                 addRect(Rect(0f, 0f, size.width, size.height))
                 addRoundRect(RoundRect(rect, CornerRadius(24f, 24f)))
             }
-            drawPath(path, Color.Black.copy(alpha = 0.65f))
+            drawPath(path, Color.Black.copy(alpha = 0.28f))
 
             // Corner target accents
             val cornerLength = 36f
@@ -374,7 +402,36 @@ fun ScannerScreen(
                     )
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Bouton boost éclairage/lumière (EV compensation)
+                    Surface(
+                        onClick = { boostLighting = !boostLighting },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (boostLighting) JudoGold else Color.Black.copy(alpha = 0.6f),
+                        contentColor = if (boostLighting) Color.Black else Color.White,
+                        modifier = Modifier.testTag("toggle_boost_lighting_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FlashOn,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = if (boostLighting) Color.Black else JudoGold
+                            )
+                            Text(
+                                text = if (boostLighting) "Lumière +" else "Std",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
+
                     IconButton(
                         onClick = {
                             isTorchOn = !isTorchOn
@@ -382,13 +439,13 @@ fun ScannerScreen(
                         },
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.6f))
+                            .background(if (isTorchOn) JudoGold else Color.Black.copy(alpha = 0.6f))
                             .testTag("toggle_torch_button")
                     ) {
                         Icon(
                             imageVector = if (isTorchOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
                             contentDescription = "Lampe torche",
-                            tint = if (isTorchOn) JudoRed else Color.White
+                            tint = if (isTorchOn) Color.Black else Color.White
                         )
                     }
 

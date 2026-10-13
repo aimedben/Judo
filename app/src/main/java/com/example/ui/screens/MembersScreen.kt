@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -20,8 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,6 +58,7 @@ import com.example.ui.components.GroupBadge
 import com.example.ui.components.JudokaAvatar
 import com.example.ui.theme.JudoRed
 import com.example.ui.theme.JudoSuccess
+import com.example.util.CsvExporter
 
 @Composable
 fun MembersScreen(
@@ -66,15 +68,17 @@ fun MembersScreen(
     onEditCoachProfile: (() -> Unit)? = null,
     onSelectMember: (Long) -> Unit,
     onSaveMember: (Member) -> Unit,
-    onNavigateToScanner: () -> Unit,
-    onScanCardToExtract: () -> Unit,
+    onNavigateToScanner: (() -> Unit)? = null,
+    onScanCardToExtract: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var selectedGroupFilter by remember { mutableStateOf("ALL") }
+    var selectedStatusFilter by remember { mutableStateOf("ALL") } // ALL, ACTIF, SUSPENDU, RETARD
     var showAddMemberDialog by remember { mutableStateOf(false) }
 
-    val filteredMembers = remember(members, searchQuery, selectedGroupFilter) {
+    val filteredMembers = remember(members, searchQuery, selectedGroupFilter, selectedStatusFilter) {
         members.filter { member ->
             val matchesSearch = searchQuery.isBlank() ||
                 member.fullName.contains(searchQuery, ignoreCase = true) ||
@@ -83,7 +87,14 @@ fun MembersScreen(
 
             val matchesGroup = selectedGroupFilter == "ALL" || member.groupCode == selectedGroupFilter
 
-            matchesSearch && matchesGroup
+            val matchesStatus = when (selectedStatusFilter) {
+                "ACTIF" -> member.status == "ACTIF"
+                "SUSPENDU" -> member.status == "SUSPENDU"
+                "RETARD" -> !member.isCotisationUpToDate
+                else -> true
+            }
+
+            matchesSearch && matchesGroup && matchesStatus
         }
     }
 
@@ -102,11 +113,11 @@ fun MembersScreen(
         ) {
             Column {
                 Text(
-                    text = "Membres du Dojo",
+                    text = "Athlètes du Club",
                     style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    text = "${filteredMembers.size} judokas inscrits",
+                    text = "${filteredMembers.size} athlètes filtrés sur ${members.size}",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -114,14 +125,18 @@ fun MembersScreen(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Export CSV button instead of scanner
                 OutlinedButton(
-                    onClick = onScanCardToExtract,
+                    onClick = {
+                        val label = if (selectedGroupFilter == "ALL") "Tous les judokas" else "Groupe $selectedGroupFilter"
+                        CsvExporter.shareMembersReport(context, filteredMembers, label)
+                    },
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.testTag("scan_card_extract_button")
+                    modifier = Modifier.testTag("export_athletes_csv_btn")
                 ) {
-                    Icon(imageVector = Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.size(4.dp))
-                    Text("Scan Carte")
+                    Icon(imageVector = Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Export CSV")
                 }
 
                 Button(
@@ -131,7 +146,7 @@ fun MembersScreen(
                     modifier = Modifier.testTag("add_member_button")
                 ) {
                     Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.size(4.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text("Ajouter")
                 }
             }
@@ -141,13 +156,64 @@ fun MembersScreen(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Rechercher nom, ceinture, carte QR...") },
+            placeholder = { Text("Rechercher nom, prénom, ceinture...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("members_search_input")
         )
+
+        // Status Filter Chips
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            item {
+                FilterChip(
+                    selected = selectedStatusFilter == "ALL",
+                    onClick = { selectedStatusFilter = "ALL" },
+                    label = { Text("Tous statuts") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = JudoRed,
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+            item {
+                FilterChip(
+                    selected = selectedStatusFilter == "ACTIF",
+                    onClick = { selectedStatusFilter = "ACTIF" },
+                    label = { Text("Actifs") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = JudoSuccess,
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+            item {
+                FilterChip(
+                    selected = selectedStatusFilter == "RETARD",
+                    onClick = { selectedStatusFilter = "RETARD" },
+                    label = { Text("Cotisation en retard") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFFFF9800),
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+            item {
+                FilterChip(
+                    selected = selectedStatusFilter == "SUSPENDU",
+                    onClick = { selectedStatusFilter = "SUSPENDU" },
+                    label = { Text("Suspendus") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.error,
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+        }
 
         // Category Filter Chips
         LazyRow(
@@ -158,7 +224,7 @@ fun MembersScreen(
                 FilterChip(
                     selected = selectedGroupFilter == "ALL",
                     onClick = { selectedGroupFilter = "ALL" },
-                    label = { Text("Tous") },
+                    label = { Text("Toutes catégories") },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = JudoRed,
                         selectedLabelColor = Color.White
@@ -178,17 +244,6 @@ fun MembersScreen(
             }
         }
 
-        // Secondary Action: Associer carte QR
-        OutlinedButton(
-            onClick = onNavigateToScanner,
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(imageVector = Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.size(8.dp))
-            Text("Associer une carte QR physique à un judoka")
-        }
-
         // Members List
         if (filteredMembers.isEmpty()) {
             Box(
@@ -198,7 +253,7 @@ fun MembersScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Aucun judoka correspondant trouvé.",
+                    text = "Aucun athlète correspondant trouvé.",
                     style = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -227,7 +282,7 @@ fun MembersScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
+                                .padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
@@ -241,17 +296,15 @@ fun MembersScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
                                         text = member.fullName,
-                                        style = MaterialTheme.typography.bodyLarge.copy(
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                                     )
                                     if (isCheckedInToday) {
                                         Surface(
-                                            shape = RoundedCornerShape(12.dp),
+                                            shape = RoundedCornerShape(4.dp),
                                             color = JudoSuccess.copy(alpha = 0.15f)
                                         ) {
                                             Row(
@@ -263,7 +316,7 @@ fun MembersScreen(
                                                     imageVector = Icons.Default.Check,
                                                     contentDescription = null,
                                                     tint = JudoSuccess,
-                                                    modifier = Modifier.size(12.dp)
+                                                    modifier = Modifier.size(10.dp)
                                                 )
                                                 Text(
                                                     text = "Présent",
@@ -286,11 +339,31 @@ fun MembersScreen(
                                 ) {
                                     GroupBadge(group = member.group)
                                     BeltBadge(belt = member.belt)
+
+                                    if (!member.isCotisationUpToDate) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFFF9800).copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = "Cotisation retard",
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    color = Color(0xFFFF9800),
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (member.phone.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = member.qrCode,
+                                        text = "📞 ${member.phone}",
                                         style = MaterialTheme.typography.labelSmall.copy(
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 10.sp
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     )
                                 }
@@ -298,9 +371,9 @@ fun MembersScreen(
 
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                                contentDescription = "Détail",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(16.dp)
+                                contentDescription = "Détails",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
@@ -314,10 +387,6 @@ fun MembersScreen(
             initialMember = null,
             coachProfile = coachProfile,
             onEditCoachProfile = onEditCoachProfile,
-            onRequestScanCard = {
-                showAddMemberDialog = false
-                onScanCardToExtract()
-            },
             onSave = { newMember ->
                 onSaveMember(newMember)
                 showAddMemberDialog = false

@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 val JudoRed = Color(0xFFD71920)
 val JudoRedDark = Color(0xFFB01017)
 val JudoRedLight = Color(0xFFFF5252)
+val JudoNavy = Color(0xFF0D1B2A)
 
 val DarkBackground = Color(0xFF111111)
 val DarkSurface = Color(0xFF18191D)
